@@ -82,8 +82,36 @@ void dispatch_request(struct request_list *access_list, int *current_sector) {
 	free(req_to_disp);
 }
 
-void rearrange_awaiting_list(struct request_list await_req_list) {
+void rearrange_future_list(struct request_list *future_list) {
 
+	struct request *tmp_req_prev = NULL;
+	struct request *tmp_req = future_list->first;
+	struct request *tmp_req_next;
+	
+	if(tmp_req == NULL) return;
+	while(1) {
+		tmp_req_next = tmp_req->next;
+		if(tmp_req_next == NULL) {
+			break;
+		}
+		if(tmp_req_next->sector < tmp_req->sector) {
+			printf("Trading %d with %d\n", tmp_req_next->sector, tmp_req->sector);
+			tmp_req_prev->next = tmp_req_next;
+			tmp_req = tmp_req_next->next;
+			tmp_req_next = tmp_req;
+		}
+
+		tmp_req_prev = tmp_req;
+		tmp_req = tmp_req_next;
+		tmp_req_next = tmp_req_next->next;
+	}
+}
+
+void copy_to_access_list(struct request_list *access_list, struct request_list *future_list) {
+	access_list->first = future_list->first;
+	access_list->last = future_list->last;
+	future_list->first = NULL;
+	access_list->last = NULL;
 }
 
 void print_list(struct request_list *list) {
@@ -128,6 +156,7 @@ int main() {
 	printf("Reading access request list...\n");
 	print_list(access_list);
 	printf("Reading future request list...\n");
+	rearrange_future_list(future_list);
 	print_list(future_list);
 
 	struct request *tmp_req = access_list->first;
@@ -137,6 +166,8 @@ int main() {
 		dispatch_request(access_list, &current_sector);
 		tmp_req = access_list->first;	
 	}
+
+	// rearrange_future_list(future_list);
 
 	return 0;
 }
