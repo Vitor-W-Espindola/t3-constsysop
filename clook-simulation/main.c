@@ -74,7 +74,7 @@ void dispatch_request(struct request_list *access_list, int *current_sector) {
 	if(req_to_disp == NULL) 
 		return;
 	access_list->first = req_to_disp->next;
-	if(access_list->first = NULL) 
+	if(access_list->first == NULL) 
 		access_list->last = NULL;
 	else
 		*current_sector = access_list->first->sector;
@@ -135,7 +135,7 @@ int main() {
 		if(tmp_req == NULL)
 			break;
 		dispatch_request(access_list, &current_sector);
-		tmp_req = tmp_req->next;	
+		tmp_req = access_list->first;	
 	}
 
 	return 0;
