@@ -7,7 +7,11 @@ struct request {
 	struct request *next;
 };
 
-void print_req(struct request *req) { printf("Request with sector -> %d\n", req->sector); fflush(stdout); }
+void print_req(struct request *req) { 
+	if(req == NULL) return;
+	printf("Request with sector -> %d\n", req->sector); 
+	fflush(stdout); 
+}
 
 struct request_list {
 	int size;
@@ -23,6 +27,7 @@ void append_request_to_future(struct request_list *list, struct request *req) {
 		list->last->next = req;
 		list->last = req;
 	}
+	list->size++;
 }
 
 void append_request_to_access(struct request_list *list, struct request *req, int *current_sector) {
@@ -58,6 +63,7 @@ void append_request_to_access(struct request_list *list, struct request *req, in
 				req->next = tmp_req;
 				break;
 			}
+			list->size++;
 		}
 	}
 }
@@ -82,38 +88,6 @@ void dispatch_request(struct request_list *access_list, int *current_sector) {
 	free(req_to_disp);
 }
 
-void rearrange_future_list(struct request_list *future_list) {
-
-	struct request *tmp_req_prev = NULL;
-	struct request *tmp_req = future_list->first;
-	struct request *tmp_req_next;
-	
-	if(tmp_req == NULL) return;
-	while(1) {
-		tmp_req_next = tmp_req->next;
-		if(tmp_req_next == NULL) {
-			break;
-		}
-		if(tmp_req_next->sector < tmp_req->sector) {
-			printf("Trading %d with %d\n", tmp_req_next->sector, tmp_req->sector);
-			tmp_req_prev->next = tmp_req_next;
-			tmp_req = tmp_req_next->next;
-			tmp_req_next = tmp_req;
-		}
-
-		tmp_req_prev = tmp_req;
-		tmp_req = tmp_req_next;
-		tmp_req_next = tmp_req_next->next;
-	}
-}
-
-void copy_to_access_list(struct request_list *access_list, struct request_list *future_list) {
-	access_list->first = future_list->first;
-	access_list->last = future_list->last;
-	future_list->first = NULL;
-	access_list->last = NULL;
-}
-
 void print_list(struct request_list *list) {
 	struct request *tmp_req = list->first;
 	while(1) {
@@ -121,6 +95,63 @@ void print_list(struct request_list *list) {
 		printf("Request sector: %d\n", tmp_req->sector);
 		tmp_req = tmp_req->next;
 	}
+}
+
+void refresh_access_list(struct request_list *access_list, struct request_list *future_list, int future_list_size) {
+	
+	struct request *tmp_access_req = access_list->first;
+	struct request *tmp_future_req = future_list->first;
+	int i;
+	for(i = 0; i < future_list_size; i++) {
+		tmp_future_req = future_list->first;
+
+		struct request *chosen_req_prev;
+		struct request *chosen_req = tmp_future_req;
+		struct request *chosen_req_next;
+		struct request *inner_tmp_future_req_prev = NULL;;
+		struct request *inner_tmp_future_req = tmp_future_req;
+		
+		// Find the chosen one
+		while(1) {	
+			printf("Comparing %d with the chosen %d...\n", inner_tmp_future_req->sector, chosen_req->sector);
+			if(inner_tmp_future_req->sector <= chosen_req->sector) {
+				chosen_req = inner_tmp_future_req;
+				chosen_req_prev = inner_tmp_future_req_prev;
+				chosen_req_next = inner_tmp_future_req->next;
+			}
+			if(inner_tmp_future_req->next == NULL) {
+				break;
+			} else {
+				inner_tmp_future_req_prev = inner_tmp_future_req;
+				inner_tmp_future_req = inner_tmp_future_req->next;
+				printf("Changed to %d\n", inner_tmp_future_req->sector);
+			}
+		}
+
+		// Modify lists
+		if(tmp_access_req == NULL) {
+			access_list->first = chosen_req;
+			tmp_access_req = chosen_req;
+		} else {
+			access_list->last = chosen_req;
+			tmp_access_req->next = chosen_req;
+			tmp_access_req = tmp_access_req->next;
+		}
+		
+		// Rearrange elements
+		if(chosen_req_prev == NULL) {
+			future_list->first = chosen_req_next;
+		} else {
+			if(chosen_req_prev->next != NULL)
+				chosen_req_prev->next = chosen_req_next;
+		}
+
+		printf("Added the chosen %d...\n", chosen_req->sector);
+
+		printf("Current state of future list...\n");
+	}
+
+
 }
 
 
@@ -142,9 +173,9 @@ int main() {
 	access_list->first = NULL;
 	access_list->last = NULL;
 	struct request_list *future_list = malloc(sizeof(struct request_list));
-	
-	srand(time(NULL));
 
+	srand(time(NULL));
+	
 	int i;
 	for(i = 0; i < 10; i++) {
 		struct request *req = malloc(sizeof(struct request));
@@ -152,11 +183,10 @@ int main() {
 		printf("Receving a request: sector %d...\n", req->sector);
 		recv_request(access_list, future_list, req, &current_sector);
 	}
-
+	
 	printf("Reading access request list...\n");
 	print_list(access_list);
 	printf("Reading future request list...\n");
-	rearrange_future_list(future_list);
 	print_list(future_list);
 
 	struct request *tmp_req = access_list->first;
@@ -166,8 +196,22 @@ int main() {
 		dispatch_request(access_list, &current_sector);
 		tmp_req = access_list->first;	
 	}
+	
+	refresh_access_list(access_list, future_list, future_list->size);
 
-	// rearrange_future_list(future_list);
+	printf("Reading access request list...\n");
+	print_list(access_list);
+	printf("Reading future request list...\n");
+	print_list(future_list);
+	
+	printf("Reading first access list element\n");
+	print_req(access_list->first);
+	printf("Reading last acess list element\n");
+	print_req(access_list->last);
+	printf("Reading first future list element\n");
+	print_req(future_list->first);
+	printf("Reading last future list element\n");
+	print_req(future_list->last);
 
 	return 0;
 }
