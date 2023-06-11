@@ -32,7 +32,6 @@ void append_request_to_future(struct request_list *list, struct request *req) {
 
 void append_request_to_access(struct request_list *list, struct request *req, int *current_sector) {
 	
-
 	struct request *tmp_req_prev = NULL;
 	struct request *tmp_req = list->first;
 	struct request *tmp_req_next;
@@ -99,59 +98,56 @@ void print_list(struct request_list *list) {
 
 void refresh_access_list(struct request_list *access_list, struct request_list *future_list, int future_list_size) {
 	
-	struct request *tmp_access_req = access_list->first;
-	struct request *tmp_future_req = future_list->first;
 	int i;
+	
+	struct request *current_access_req;
+	struct request *first_req;
 	for(i = 0; i < future_list_size; i++) {
-		tmp_future_req = future_list->first;
 
-		struct request *chosen_req_prev;
-		struct request *chosen_req = tmp_future_req;
-		struct request *chosen_req_next;
-		struct request *inner_tmp_future_req_prev = NULL;;
-		struct request *inner_tmp_future_req = tmp_future_req;
+		first_req = future_list->first;
 		
-		// Find the chosen one
-		while(1) {	
-			printf("Comparing %d with the chosen %d...\n", inner_tmp_future_req->sector, chosen_req->sector);
-			if(inner_tmp_future_req->sector <= chosen_req->sector) {
-				chosen_req = inner_tmp_future_req;
-				chosen_req_prev = inner_tmp_future_req_prev;
-				chosen_req_next = inner_tmp_future_req->next;
+		struct request *prev_req = first_req;
+		struct request *current_req = first_req;
+		struct request *chosen_req_prev = NULL;	
+		struct request *chosen_req = first_req;
+		while(1) {
+			if(current_req == NULL) break;
+
+			if(current_req->sector < chosen_req->sector) {
+				chosen_req_prev = prev_req;
+				chosen_req = current_req;
 			}
-			if(inner_tmp_future_req->next == NULL) {
-				break;
-			} else {
-				inner_tmp_future_req_prev = inner_tmp_future_req;
-				inner_tmp_future_req = inner_tmp_future_req->next;
-				printf("Changed to %d\n", inner_tmp_future_req->sector);
-			}
+
+			prev_req = current_req;
+			current_req = current_req->next;
 		}
 
-		// Modify lists
-		if(tmp_access_req == NULL) {
-			access_list->first = chosen_req;
-			tmp_access_req = chosen_req;
+		// Populate access list
+		if(access_list->first == NULL)
+		 	access_list->first = chosen_req;
+		else
+			current_access_req->next = chosen_req;
+
+		current_access_req = chosen_req;
+
+		access_list->last = chosen_req;
+
+		// Rearrange pointers
+		if(chosen_req_prev != NULL) { // If it is not the first one
+			if(chosen_req->next != NULL)
+				chosen_req_prev->next = chosen_req->next;
+			else
+				chosen_req_prev->next = NULL;
 		} else {
-			access_list->last = chosen_req;
-			tmp_access_req->next = chosen_req;
-			tmp_access_req = tmp_access_req->next;
-		}
-		
-		// Rearrange elements
-		if(chosen_req_prev == NULL) {
-			future_list->first = chosen_req_next;
-		} else {
-			if(chosen_req_prev->next != NULL)
-				chosen_req_prev->next = chosen_req_next;
+			future_list->first = chosen_req->next;
 		}
 
-		printf("Added the chosen %d...\n", chosen_req->sector);
+		first_req = first_req->next;
 
-		printf("Current state of future list...\n");
+		future_list->size--;
+		if(future_list->size == 0)
+			future_list->last = NULL;	
 	}
-
-
 }
 
 
