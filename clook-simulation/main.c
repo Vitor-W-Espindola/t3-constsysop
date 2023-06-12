@@ -3,8 +3,10 @@
 #include <time.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <semaphore.h>
 
 pthread_t threads[2];
+sem_t mutex;
 
 struct request {
 	int sector;
@@ -41,7 +43,7 @@ void append_request_to_future(struct request_list *list, struct request *req) {
 
 void append_request_to_access(struct request_list *list, struct request *req, int *current_sector) {
 
-	if(list->size > 10) 
+	if(list->size >= 10) 
 		return;
 
 	struct request *tmp_req_prev = NULL;
@@ -172,12 +174,19 @@ struct receiver_args {
 void *receiver(void *arg) {
 	struct receiver_args *r_args = arg;
 	while(1) {
+		
+		if(r_args->access_list->size >= 10 && r_args->future_list->size >= 10)
+			break;
+			
 		printf("Current sector: %d\n", *(r_args->current_sector));
 		struct request *req = malloc(sizeof(struct request));
 		req->sector = rand() % 1000;
 		printf("Receving a request: sector %d...\n", req->sector);
-		recv_request(r_args->access_list, r_args->future_list, req, r_args->current_sector);
 		
+		sem_wait(&mutex);
+		recv_request(r_args->access_list, r_args->future_list, req, r_args->current_sector);
+		sem_post(&mutex);
+
 		float time_milliseconds = (rand() % 1000) / 500;
 		sleep(time_milliseconds);
 	}
@@ -203,7 +212,10 @@ int main() {
 	access_list->last = NULL;
 	struct request_list *future_list = malloc(sizeof(struct request_list));
 
+
 	srand(time(NULL));
+	
+	if(sem_init(&mutex, 1, 1) < 0) exit(0);
 	
 	struct receiver_args r_args = {
 		.access_list = access_list,
@@ -211,6 +223,7 @@ int main() {
 		.current_sector = &current_sector
 	};
 
+	
 	pthread_create(&threads[0], NULL, &receiver, &r_args);
 	pthread_join(threads[0], NULL);
 
@@ -237,12 +250,13 @@ int main() {
 	}
 	
 	refresh_access_list(access_list, future_list, future_list->size);
+	*/
 
 	printf("Reading access request list...\n");
 	print_list(access_list);
 	printf("Reading future request list...\n");
 	print_list(future_list);
-	
+
 	printf("Reading first access list element\n");
 	print_req(access_list->first);
 	printf("Reading last acess list element\n");
@@ -251,7 +265,6 @@ int main() {
 	print_req(future_list->first);
 	printf("Reading last future list element\n");
 	print_req(future_list->last);
-	*/
 
 	return 0;
 }
