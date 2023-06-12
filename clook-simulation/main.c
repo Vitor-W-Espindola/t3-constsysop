@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <pthread.h>
+#include <unistd.h>
+
+pthread_t threads[2];
 
 struct request {
 	int sector;
@@ -20,6 +24,10 @@ struct request_list {
 };
 
 void append_request_to_future(struct request_list *list, struct request *req) {
+
+	if(list->size > 10) 
+		return;
+
 	if(list->first == NULL) {
 		list->first = req;
 		list->last = req;
@@ -28,10 +36,14 @@ void append_request_to_future(struct request_list *list, struct request *req) {
 		list->last = req;
 	}
 	list->size++;
+	printf("Future list size: %d\n", list->size);
 }
 
 void append_request_to_access(struct request_list *list, struct request *req, int *current_sector) {
-	
+
+	if(list->size > 10) 
+		return;
+
 	struct request *tmp_req_prev = NULL;
 	struct request *tmp_req = list->first;
 	struct request *tmp_req_next;
@@ -62,9 +74,10 @@ void append_request_to_access(struct request_list *list, struct request *req, in
 				req->next = tmp_req;
 				break;
 			}
-			list->size++;
 		}
+		list->size++;
 	}
+	printf("Access list size: %d\n", list->size);
 }
 
 void recv_request(struct request_list *access_list, struct request_list *future_list, struct request *req, int *current_sector) {
@@ -150,6 +163,25 @@ void refresh_access_list(struct request_list *access_list, struct request_list *
 	}
 }
 
+struct receiver_args {
+	struct request_list *access_list;
+	struct request_list *future_list;
+	int *current_sector;
+};
+
+void *receiver(void *arg) {
+	struct receiver_args *r_args = arg;
+	while(1) {
+		printf("Current sector: %d\n", *(r_args->current_sector));
+		struct request *req = malloc(sizeof(struct request));
+		req->sector = rand() % 1000;
+		printf("Receving a request: sector %d...\n", req->sector);
+		recv_request(r_args->access_list, r_args->future_list, req, r_args->current_sector);
+		
+		float time_milliseconds = (rand() % 1000) / 500;
+		sleep(time_milliseconds);
+	}
+}
 
 /*
  * Two queues are built in order to receive requests:
@@ -164,6 +196,7 @@ void refresh_access_list(struct request_list *access_list, struct request_list *
  *
  * */
 int main() {
+
 	int current_sector = 0;
 	struct request_list *access_list = malloc(sizeof(struct request_list));
 	access_list->first = NULL;
@@ -172,6 +205,16 @@ int main() {
 
 	srand(time(NULL));
 	
+	struct receiver_args r_args = {
+		.access_list = access_list,
+		.future_list = future_list,
+		.current_sector = &current_sector
+	};
+
+	pthread_create(&threads[0], NULL, &receiver, &r_args);
+	pthread_join(threads[0], NULL);
+
+	/*
 	int i;
 	for(i = 0; i < 10; i++) {
 		struct request *req = malloc(sizeof(struct request));
@@ -208,6 +251,7 @@ int main() {
 	print_req(future_list->first);
 	printf("Reading last future list element\n");
 	print_req(future_list->last);
+	*/
 
 	return 0;
 }
