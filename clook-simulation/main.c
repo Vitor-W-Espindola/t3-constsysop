@@ -12,22 +12,43 @@ struct request {
 	int sector;
 	struct request *next;
 };
-
-void print_req(struct request *req) { 
-	if(req == NULL) return;
-	printf("Request with sector -> %d\n", req->sector); 
-	fflush(stdout); 
-}
-
 struct request_list {
 	int size;
 	struct request *first;
 	struct request *last;	
 };
 
+struct request_list *access_list;
+struct request_list *future_list;
+
+void print_req(struct request *req) { 
+	if(req == NULL) return;
+	printf("\tRequest with sector -> %d, ", req->sector);
+       	req->next != NULL ? printf("Next -> %d\n", req->next->sector) :	printf("\n"); 
+	fflush(stdout);
+}
+
+void print_list(struct request_list *list) {
+	struct request *tmp_req = list->first;
+	while(1) {
+		if(tmp_req == NULL) break;
+		print_req(tmp_req);
+		tmp_req = tmp_req->next;
+	}
+}
+
+void print_state(struct request_list *access_list, struct request_list *future_list) {
+
+	printf("\tReading access request list...\n");
+	print_list(access_list);
+	printf("\tReading future request list...\n");
+	print_list(future_list);
+	printf("\n");
+}
+
 void append_request_to_future(struct request_list *list, struct request *req) {
 
-	if(list->first == NULL && list->last == NULL) {
+	if(list->first == NULL && list->last == NULL) { // If it is empty
 		list->first = req;
 		list->last = req;
 	} else {
@@ -93,23 +114,18 @@ void dispatch_request(struct request_list *access_list, int *current_sector) {
 		access_list->last = NULL;
 		*current_sector = 0;
 	} else {
+		if(access_list->first->next == NULL)
+			access_list->last = access_list->first;
 		*current_sector = access_list->first->sector;
 	}
 	printf("Dispatching request %d...\n", req_to_disp->sector);
 	access_list->size--;
 	free(req_to_disp);
+
 }
 
-void print_list(struct request_list *list) {
-	struct request *tmp_req = list->first;
-	while(1) {
-		if(tmp_req == NULL) break;
-		print_req(tmp_req);
-		tmp_req = tmp_req->next;
-	}
-}
 
-void refresh_access_list(struct request_list *access_list, struct request_list *future_list, int future_list_size) {
+void refresh_access_list(struct request_list *access_list, struct request_list *future_list, int future_list_size, int *current_sector) {
 	
 	int i;
 	
@@ -165,7 +181,10 @@ void refresh_access_list(struct request_list *access_list, struct request_list *
 	
 		access_list->size++;
 	}
+	if(access_list->first != NULL)
+		*current_sector = access_list->first->sector;
 }
+
 
 struct t_args {
 	struct request_list *access_list;
@@ -180,13 +199,15 @@ void *receiver(void *arg) {
 		sem_wait(&mutex);
 		struct request *req = malloc(sizeof(struct request));
 		req->sector = rand() % 1000;
+		req->next = NULL;
 		printf("Receving a request: sector %d...\n", req->sector);
 		
 		recv_request(args->access_list, args->future_list, req, args->current_sector);
 		printf("Current sector: %d\n", *(args->current_sector));
+		print_state(access_list, future_list);	
 		sem_post(&mutex);
 
-		float time_milliseconds = (rand() % 1000) / 500;
+		float time_milliseconds = (rand() % 1000) / 250;
 		sleep(time_milliseconds);
 	}
 }
@@ -199,30 +220,18 @@ void *dispatcher(void *arg) {
 		dispatch_request(args->access_list, args->current_sector);
 
 		if(args->access_list->first == NULL) {
-			printf("Access list is empty - nothing to dispatch...\n");
-		} else {
-			printf("Reading access request list...\n");
-			print_list(args->access_list);
-			printf("Reading future request list...\n");
-			print_list(args->future_list);
-				
+			printf("Access list is empty - nothing to dispatch...\n");		
 			printf("Doing refresh...\n");
-			refresh_access_list(args->access_list, args->future_list, args->future_list->size);
-			
-			printf("Reading access request list...\n");
-			print_list(args->access_list);
-			printf("Reading future request list...\n");
-			print_list(args->future_list);
-			
+			refresh_access_list(args->access_list, args->future_list, args->future_list->size, args->current_sector);
+			printf("Current sector: %d\n", *(args->current_sector));
 		}
-
+		
+		print_state(access_list, future_list);	
 		sem_post(&mutex);
 
-		float time_milliseconds = (rand() % 1000) / 500;
+		float time_milliseconds = (rand() % 1000) / 225;
 		sleep(time_milliseconds);
 	}
-	
-
 }
 
 /*
@@ -240,11 +249,11 @@ void *dispatcher(void *arg) {
 int main() {
 
 	int current_sector = 0;
-	struct request_list *access_list = malloc(sizeof(struct request_list));
+	access_list = malloc(sizeof(struct request_list));
 	access_list->first = NULL;
 	access_list->last = NULL;
 	access_list->size = 0;
-	struct request_list *future_list = malloc(sizeof(struct request_list));
+	future_list = malloc(sizeof(struct request_list));
 	future_list->first = NULL;
 	future_list->last = NULL;
 	future_list->size = 0;
