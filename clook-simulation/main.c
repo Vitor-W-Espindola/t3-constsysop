@@ -18,9 +18,6 @@ struct request_list {
 	struct request *last;	
 };
 
-struct request_list *access_list;
-struct request_list *future_list;
-
 void print_req(struct request *req) { 
 	if(req == NULL) return;
 	printf("\tRequest with sector -> %d, ", req->sector);
@@ -204,7 +201,7 @@ void *receiver(void *arg) {
 		
 		recv_request(args->access_list, args->future_list, req, args->current_sector);
 		printf("Current sector: %d\n", *(args->current_sector));
-		print_state(access_list, future_list);	
+		print_state(args->access_list, args->future_list);	
 		sem_post(&mutex);
 
 		float time_milliseconds = (rand() % 1000) / 250;
@@ -226,7 +223,7 @@ void *dispatcher(void *arg) {
 			printf("Current sector: %d\n", *(args->current_sector));
 		}
 		
-		print_state(access_list, future_list);	
+		print_state(args->access_list, args->future_list);	
 		sem_post(&mutex);
 
 		float time_milliseconds = (rand() % 1000) / 225;
@@ -249,11 +246,11 @@ void *dispatcher(void *arg) {
 int main() {
 
 	int current_sector = 0;
-	access_list = malloc(sizeof(struct request_list));
+	struct request_list *access_list = malloc(sizeof(struct request_list));
 	access_list->first = NULL;
 	access_list->last = NULL;
 	access_list->size = 0;
-	future_list = malloc(sizeof(struct request_list));
+	struct request_list *future_list = malloc(sizeof(struct request_list));
 	future_list->first = NULL;
 	future_list->last = NULL;
 	future_list->size = 0;
@@ -273,46 +270,6 @@ int main() {
 	
 	pthread_join(threads[0], NULL);
 	pthread_join(threads[1], NULL);
-
-	/*
-	int i;
-	for(i = 0; i < 10; i++) {
-		struct request *req = malloc(sizeof(struct request));
-		req->sector = rand() % 100;
-		printf("Receving a request: sector %d...\n", req->sector);
-		recv_request(access_list, future_list, req, &current_sector);
-	}
-	
-	printf("Reading access request list...\n");
-	print_list(access_list);
-	printf("Reading future request list...\n");
-	print_list(future_list);
-
-	struct request *tmp_req = access_list->first;
-	while(1) {
-		if(tmp_req == NULL)
-			break;
-		dispatch_request(access_list, &current_sector);
-		tmp_req = access_list->first;	
-	}
-	
-	refresh_access_list(access_list, future_list, future_list->size);
-	
-
-	printf("Reading access request list...\n");
-	print_list(access_list);
-	printf("Reading future request list...\n");
-	print_list(future_list);
-	*/
-
-	printf("Reading first access list element\n");
-	print_req(access_list->first);
-	printf("Reading last acess list element\n");
-	print_req(access_list->last);
-	printf("Reading first future list element\n");
-	print_req(future_list->first);
-	printf("Reading last future list element\n");
-	print_req(future_list->last);
 
 	return 0;
 }
