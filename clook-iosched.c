@@ -11,11 +11,17 @@
 #include <linux/slab.h>
 #include <linux/init.h>
 
-
 /* C-LOOK data structure. */
 struct clook_data {
 	struct list_head queue;
 };
+
+int *current_sector;
+struct future_list {
+	struct list_head queue;
+};
+static void append_request(struct request_queue *q, structu request *rq) {}
+static void refresh();
 
 static void clook_merged_requests(struct request_queue *q, struct request *rq, struct request *next)
 {
@@ -28,6 +34,7 @@ static int clook_dispatch(struct request_queue *q, int force)
 	struct clook_data *nd = q->elevator->elevator_data;
 	char direction = 'R';
 	struct request *rq;
+	struct request *next_req;
 
 	/* Aqui deve-se retirar uma requisição da fila e enviá-la para processamento.
 	 * Use como exemplo o driver noop-iosched.c. Veja como a requisição é tratada.
@@ -38,10 +45,24 @@ static int clook_dispatch(struct request_queue *q, int force)
 	rq = list_first_entry_or_null(&nd->queue, struct request, queuelist);
 
 	if (rq) {
+
+		next_req = list_next_entry(rq, queuelist);
+
 		list_del_init(&rq->queuelist);
 		elv_dispatch_sort(q, rq);
 		printk(KERN_EMERG "[C-LOOK] dsp %c %lu\n", direction, blk_rq_pos(rq));
-
+		
+		// Refresh lists
+		struct request *first_request = list_first_entry_or_null(&nd->queue, struct request, queuelist);
+		if(first_request == NULL) { // If access list is empty
+			first_request = refresh(); // The list head is updated
+			if(first_request == NULL) { // If no new request was moved (list head keeps null)
+				*current_sector = 0;
+			else
+				*current_sector = first_request->sector_t;
+		} else {
+			*current_sector = first_request->sector_t; 
+		}
 		return 1;
 	}
 
@@ -59,8 +80,12 @@ static void clook_add_request(struct request_queue *q, struct request *rq)
 	 *
 	 * Antes de retornar da função, imprima o sector que foi adicionado na lista.
 	 */
+	
+	// Adiciona na fila access ou future, dependendo do setor atual
+	append_request(q, rq);
 
-	list_add_tail(&rq->queuelist, &nd->queue);
+	// list_add_tail(&rq->queuelist, &nd->queue);
+
 	printk(KERN_EMERG "[C-LOOK] add %c %lu\n", direction, blk_rq_pos(rq));
 }
 
@@ -68,6 +93,7 @@ static void clook_add_request(struct request_queue *q, struct request *rq)
 static int clook_init_queue(struct request_queue *q, struct elevator_type *e)
 {
 	struct clook_data *nd;
+	struct future_list *fl;
 	struct elevator_queue *eq;
 
 	/* Implementação da inicialização da fila (queue).
@@ -76,9 +102,19 @@ static int clook_init_queue(struct request_queue *q, struct elevator_type *e)
 	 *
 	 */
 
+	*current_sector = 0;
+
 	eq = elevator_alloc(q, e);
 	if (!eq)
 		return -ENOMEM;
+
+	// Future list
+	fl = kmalloc_node(sizeof(*fl), GFP_KERNEL, q->node);
+	if(!fl) {
+		kobject_put(&eq->kobj);
+		return -ENOMEM;
+	}
+	INIT_LIST_HEAD(&fl->queue);
 
 	nd = kmalloc_node(sizeof(*nd), GFP_KERNEL, q->node);
 	if (!nd) {
@@ -88,6 +124,7 @@ static int clook_init_queue(struct request_queue *q, struct elevator_type *e)
 	eq->elevator_data = nd;
 
 	INIT_LIST_HEAD(&nd->queue);
+
 
 	spin_lock_irq(q->queue_lock);
 	q->elevator = eq;
