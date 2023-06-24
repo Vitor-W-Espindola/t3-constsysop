@@ -45,11 +45,11 @@ void print_state(struct request_list *access_list, struct request_list *future_l
 
 void append_request_to_future(struct request_list *list, struct request *req) {
 
+	// If queue list is empty, add to it
 	if(list->first == NULL && list->last == NULL) { // If it is empty
 		list->first = req;
 		list->last = req;
-	} else {
-		// TODO: investigate
+	} else { // If queue is not empty, add to tail
 		list->last->next = req;
 		list->last = req;
 	}
@@ -63,6 +63,7 @@ void append_request_to_access(struct request_list *list, struct request *req, in
 	struct request *tmp_req = list->first;
 	struct request *tmp_req_next;
 	
+	// If the first element of the access list is NULL, it means the queue is empty. Then, the request is appended as the first and last. The current sector is updated;
 	if(tmp_req == NULL) {
 		tmp_req_next = NULL;
 		list->first = req;
@@ -71,6 +72,10 @@ void append_request_to_access(struct request_list *list, struct request *req, in
 	} else {
 		tmp_req_next = list->first->next;
 		while(1) {
+			// Is is needed to be found a proper position for the request inside the queue. 
+			// A proper position is based on the request sector. 
+			// It means that the request will end up being placed between a request with smaller sector value and a request with greater sector value.
+			
 			tmp_req_prev = tmp_req;
 			tmp_req = tmp_req_next;
 			if(tmp_req != NULL) 
