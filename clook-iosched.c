@@ -20,8 +20,24 @@ int *current_sector;
 struct future_list {
 	struct list_head queue;
 };
-static void append_request(struct request_queue *q, structu request *rq) {}
-static void refresh();
+static void append_to_future_list(struct request_queue *fq, struct request *rq) {	
+	struct request *first_request = list_first_entry_or_null(&fq->queue, struct request, queuelist);
+	struct request *last_request = list_last_entry(&fq->queue, struct request, queuelist);
+
+	if(first_request == NULL && last_request == NULL)
+
+}
+static void append_to_access_list(struct request_queue *aq, struct request *rq) {
+
+}
+static void append_request(struct request_queue *aq, struct request_queue *fq, struct request *req) {
+	if(aq->sector_t < *current_sector)
+		append_to_future_list(fq, req);
+	else
+		append_to_access_list(aq, req);
+
+}
+static void refresh(struct );
 
 static void clook_merged_requests(struct request_queue *q, struct request *rq, struct request *next)
 {
@@ -46,8 +62,6 @@ static int clook_dispatch(struct request_queue *q, int force)
 
 	if (rq) {
 
-		next_req = list_next_entry(rq, queuelist);
-
 		list_del_init(&rq->queuelist);
 		elv_dispatch_sort(q, rq);
 		printk(KERN_EMERG "[C-LOOK] dsp %c %lu\n", direction, blk_rq_pos(rq));
@@ -57,6 +71,7 @@ static int clook_dispatch(struct request_queue *q, int force)
 		if(first_request == NULL) { // If access list is empty
 			first_request = refresh(); // The list head is updated
 			if(first_request == NULL) { // If no new request was moved (list head keeps null)
+				// current_sector = -1
 				*current_sector = 0;
 			else
 				*current_sector = first_request->sector_t;
