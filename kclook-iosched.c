@@ -23,13 +23,28 @@ struct future_data {
 	
 struct future_data *fnd; // Future list: stores not ordered requests
 
-int current_sector;
-int access_list_size;
-int future_list_size;
+static sector_t *current_sector;
+static int *access_list_size;
+static int *future_list_size;
 
 static void clook_merged_requests(struct request_queue *q, struct request *rq, struct request *next)
 {
 	list_del_init(&next->queuelist);
+}
+
+void print_list(struct list_head *list, int list_id) {
+	if(list_id == 0)
+		printk(KERN_EMERG "Printing access list...\n");
+	else if (list_id == 1)
+		printk(KERN_EMERG "Printing future list...\n");
+	
+	struct request *r;
+	struct list_head *current_lh;
+	list_for_each(current_lh, list) {
+		r = list_entry(current_lh, struct request, queuelist); 
+		if(r)
+			printk(KERN_EMERG "Request %d\n", blk_rq_pos(r));
+	}
 }
 
 static void refresh(struct request_queue *q) {
@@ -40,20 +55,25 @@ static void refresh(struct request_queue *q) {
 	struct request *current_r;
 	struct request *smaller_r = NULL;
 	
+	printk(KERN_EMERG "[C-LOOK] refreshing...\n");
+	
 	// Iterates over the future list N^2 times and keeps moving the request with smallest sector value to access list each time. 
+	printk(KERN_EMERG "[C-LOOK] access size: %d, future size: %d\n", *access_list_size, *future_list_size);
 	int i;
-	for(i = 0; i < future_list_size; i++) {
+	for(i = 0; i < *future_list_size; i++) {
 		list_for_each(current_lh, &fnd->queue) {
 			current_r = list_entry(current_lh, struct request, queuelist);
 			if(smaller_r == NULL)
 				smaller_r = current_r;
-			if(current_r->__sector < smaller_r->__sector)
+			if(blk_rq_pos(current_r) < blk_rq_pos(smaller_r))
 				smaller_r = current_r;
 		}
 		list_move(&smaller_r->queuelist, &nd->queue);
+		*access_list_size++;
 		smaller_r = NULL;
 	}
-	future_list_size = 0;
+	*future_list_size = 0;
+	printk(KERN_EMERG "[C-LOOK] access size: %d, future size: %d\n", *access_list_size, *future_list_size);
 };
 
 /* Esta função despacha o próximo bloco a ser lido. */
@@ -74,9 +94,8 @@ static int clook_dispatch(struct request_queue *q, int force)
 	if (rq) {
 
 		list_del_init(&rq->queuelist);
-		access_list_size--;
+		*access_list_size--;
 		elv_dispatch_sort(q, rq);
-		printk(KERN_EMERG "[C-LOOK] dsp %c %lu\n", direction, blk_rq_pos(rq));
 		
 		// Check access list and refresh if needed
 		// Refreshing consists of ordering all elements in the future list by their sector values and moving then to access list
@@ -88,15 +107,18 @@ static int clook_dispatch(struct request_queue *q, int force)
 		if(list_empty(&nd->queue)) { 
 			refresh(q);
 			if(list_empty(&nd->queue)) {
-				current_sector = -1;
+				*current_sector = -1;
 			} else {
 				rq = list_first_entry_or_null(&nd->queue, struct request, queuelist);
-				current_sector = rq->__sector;
+				*current_sector = blk_rq_pos(rq);
 			}
 		} else {
 			rq = list_first_entry_or_null(&nd->queue, struct request, queuelist);
-			current_sector = rq->__sector; 
+			*current_sector = blk_rq_pos(rq); 
 		}
+		printk(KERN_EMERG "[C-LOOK] dsp %c %lu; Current sector: %lu\n", direction, blk_rq_pos(rq), *current_sector);
+		print_list(&nd->queue, 0);
+		print_list(&fnd->queue, 1);
 		return 1;
 	}
 
@@ -118,7 +140,7 @@ static void append_to_access_list(struct request_queue *q, struct request *rq) {
 	// If the access queue is empty, the request is simply added to it.
 	if(list_empty(&nd->queue)) {
 		list_add_tail(&rq->queuelist, &nd->queue);
-		current_sector = rq->__sector;
+		*current_sector = blk_rq_pos(rq);
 	} else {
 		// The request will end up being placed between a request with smaller sector value and a request with greater sector value than its own sector value. 	
 		
@@ -133,32 +155,47 @@ static void append_to_access_list(struct request_queue *q, struct request *rq) {
 			// TODO: translate to struct request
 			rn = list_entry(lhn, struct request, queuelist); 
 			
-			if(rq->__sector <= rn->__sector) {
+			if(blk_rq_pos(rq) <= blk_rq_pos(rn)) {
 				__list_add(&rq->queuelist, lh, lhn); 
 				break;
 			}
 		}	
 	};
+	printk(KERN_EMERG "Updated current sector ? -> %lu\n", *current_sector);
 }
 
 // append_request(): Decides which list the request will be appended to
 static void append_request(struct request_queue *q, struct request *rq) {
-	
+
+
 	// If the request sector is less then the current sector
 	// to be read by the disk, the request is appended to
 	// the future list. 
 	//
 	// Otherwise, the request is appended
 	// to the access list.
-	if(rq->__sector < current_sector) {
-		append_to_future_list(rq);
-		future_list_size++;
-		printk(KERN_EMERG "[C-LOOK] appended to future list %lu\n", blk_rq_pos(rq));
+	struct clook_data *nd = q->elevator->elevator_data;
+
+
+	if(list_empty(&nd->queue)) {
+			append_to_access_list(q, rq);
+			*access_list_size++;
+			printk(KERN_EMERG "[C-LOOK] appended to access list %lu because it is empty; Current sector: %lu\n", blk_rq_pos(rq), *current_sector);
 	} else {
-		append_to_access_list(q, rq);
-		access_list_size++;
-		printk(KERN_EMERG "[C-LOOK] appended to access list %lu\n", blk_rq_pos(rq));
+		if(blk_rq_pos(rq) < *current_sector) {
+			append_to_future_list(rq);
+			*future_list_size++;
+			printk(KERN_EMERG "[C-LOOK] appended to future list %lu; Current sector: %lu\n", blk_rq_pos(rq), *current_sector);
+		} else {
+			append_to_access_list(q, rq);
+			*access_list_size++;
+			printk(KERN_EMERG "[C-LOOK] appended to access list %lu; Current sector: %lu\n", blk_rq_pos(rq), *current_sector);
+		}
 	}
+	
+	print_list(&nd->queue, 0);
+	print_list(&fnd->queue, 1);
+
 }
 
 /* Esta função adiciona uma requisição ao disco em uma fila */
@@ -176,7 +213,7 @@ static void clook_add_request(struct request_queue *q, struct request *rq)
 	// The request will be appended to either the access list or the future list depending on its sector
 	append_request(q, rq);
 
-	printk(KERN_EMERG "[C-LOOK] add %c %lu\n", direction, blk_rq_pos(rq));
+	printk(KERN_EMERG "[C-LOOK] add %c %lu; Current sector: %lu\n", direction, blk_rq_pos(rq), *current_sector);
 }
 
 /* Esta função inicializa as estruturas de dados necessárias para o escalonador */
@@ -185,9 +222,12 @@ static int clook_init_queue(struct request_queue *q, struct elevator_type *e)
 	struct clook_data *nd;
 	struct elevator_queue *eq; // Access list: stores requests to be dispatched
 
-	current_sector = 0;
-	access_list_size = 0;
-	future_list_size = 0;
+	current_sector = kmalloc(sizeof(size_t *), GFP_KERNEL);
+	access_list_size = kmalloc(sizeof(int *), GFP_KERNEL);
+	future_list_size = kmalloc(sizeof(int *), GFP_KERNEL);
+	*current_sector = -1;
+	*access_list_size = 0;
+	*future_list_size = 0;
 
 	/* Implementação da inicialização da fila (queue).
 	 *
